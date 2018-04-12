@@ -6,6 +6,7 @@ import (
 	"context"
 	"flag"
 	"log"
+	"os"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -20,6 +21,7 @@ var (
 	etcdAddr = flag.String("etcdAddr", "localhost:2379", "etcd address")
 	basePath = flag.String("base", "/rpcx_users", "prefix path")
 	DB       *gorm.DB
+	PID      int // 进程号
 )
 
 type Users struct {
@@ -31,15 +33,18 @@ type Users struct {
 	Name   string
 	Gender int
 	Mark   string
+	PID    int
 }
 
 func (self *Users) GetAllUsers(ctx context.Context, args *Users, reply *[]Users) error {
 	DB.Find(reply)
+	setPID2User(reply)
 	return nil
 }
 
 func (self *Users) GetUser(ctx context.Context, args *Users, reply *Users) error {
 	DB.Where("id = ?", args.ID).First(reply)
+	setPID2User(reply)
 	return nil
 }
 
@@ -54,10 +59,12 @@ func (self *Users) UpdateUser(ctx context.Context, args *Users, reply *Users) er
 }
 
 func init() {
+	PID = os.Getpid() // 进程号: 为了区分Client调用了哪一个Server
 	DB, _ = gorm.Open("mysql", "root:wzc19931030@tcp(127.0.0.1:3306)/funny?charset=utf8&parseTime=true")
 }
 
 func main() {
+	flag.Parse()
 	s := server.NewServer()
 	addRegistryPlugin(s)
 	s.RegisterName("Users", new(Users), "")
@@ -78,4 +85,18 @@ func addRegistryPlugin(s *server.Server) {
 		log.Fatal(err)
 	}
 	s.Plugins.Add(r)
+}
+
+// 为返回数据设置PID
+func setPID2User(u interface{}) {
+	user, isUser := u.(*Users)
+	userArr, isUserArr := u.(*[]Users)
+	if isUser {
+		user.PID = PID
+	}
+	if isUserArr {
+		for i := 0; i < len(*userArr); i++ {
+			(*userArr)[i].PID = PID
+		}
+	}
 }
